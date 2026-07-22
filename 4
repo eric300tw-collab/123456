@@ -2,7 +2,7 @@ import socket
 import json
 import time
 import threading
-from collections import deque
+import os
 
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -14,50 +14,66 @@ DVL_PORT = 16171
 COLLECT_TIME = 5
 
 
-data = {
-    "vx":0,
-    "vy":0,
-    "vz":0,
-    "altitude":0,
-    "x":0,
-    "y":0,
-    "z":0
-}
-
+running = True
 
 lock = threading.Lock()
 
-running = True
+
+dvl = {
+    "vx":0.0,
+    "vy":0.0,
+    "vz":0.0,
+    "altitude":0.0,
+    "x":0.0,
+    "y":0.0,
+    "z":0.0
+}
 
 
-time_data = deque(maxlen=200)
+t_data=[]
+vx_data=[]
+vy_data=[]
+vz_data=[]
 
-vx_data = deque(maxlen=200)
-vy_data = deque(maxlen=200)
-vz_data = deque(maxlen=200)
+alt_data=[]
 
-altitude_data = deque(maxlen=200)
-
-x_data = deque(maxlen=200)
-y_data = deque(maxlen=200)
-
-
-start_time = time.time()
+x_data=[]
+y_data=[]
 
 
+start_time=time.time()
 
-def dvl_connect():
+
+
+def dvl_receive():
 
     global running
 
-    sock = socket.socket(
+
+    sock=socket.socket(
         socket.AF_INET,
         socket.SOCK_STREAM
     )
 
-    sock.connect(
-        (DVL_IP,DVL_PORT)
-    )
+    sock.settimeout(2)
+
+
+    try:
+
+        sock.connect(
+            (DVL_IP,DVL_PORT)
+        )
+
+        print("DVL Connected")
+
+    except Exception as e:
+
+        print("Connection error:",e)
+
+        running=False
+
+        return
+
 
 
     buffer=""
@@ -65,24 +81,39 @@ def dvl_connect():
 
     while running:
 
+
         try:
 
-            recv_data = sock.recv(4096).decode()
+            data=sock.recv(4096)
 
-            if not recv_data:
+
+            if not data:
                 continue
 
 
-            buffer += recv_data
+            buffer += data.decode(
+                errors="ignore"
+            )
 
 
             while "\n" in buffer:
 
-                line,buffer = buffer.split("\n",1)
+
+                msg,buffer=buffer.split("\n",1)
+
+
+                if msg.strip()=="":
+
+                    continue
+
+
 
                 try:
 
-                    packet=json.loads(line)
+                    packet=json.loads(msg)
+
+
+                    print(packet)
 
 
                     with lock:
@@ -90,19 +121,47 @@ def dvl_connect():
 
                         if packet.get("type")=="velocity":
 
-                            data["vx"]=packet.get("vx",0)
-                            data["vy"]=packet.get("vy",0)
-                            data["vz"]=packet.get("vz",0)
 
-                            if "altitude" in packet:
-                                data["altitude"]=packet["altitude"]
+                            dvl["vx"]=packet.get(
+                                "vx",
+                                0
+                            )
+
+                            dvl["vy"]=packet.get(
+                                "vy",
+                                0
+                            )
+
+                            dvl["vz"]=packet.get(
+                                "vz",
+                                0
+                            )
 
 
-                        elif packet.get("type")=="position_local":
+                            dvl["altitude"]=packet.get(
+                                "altitude",
+                                dvl["altitude"]
+                            )
 
-                            data["x"]=packet.get("x",0)
-                            data["y"]=packet.get("y",0)
-                            data["z"]=packet.get("z",0)
+
+
+                        if packet.get("type")=="position_local":
+
+
+                            dvl["x"]=packet.get(
+                                "x",
+                                0
+                            )
+
+                            dvl["y"]=packet.get(
+                                "y",
+                                0
+                            )
+
+                            dvl["z"]=packet.get(
+                                "z",
+                                0
+                            )
 
 
 
@@ -111,27 +170,49 @@ def dvl_connect():
 
                         if t <= COLLECT_TIME:
 
-                            time_data.append(t)
 
-                            vx_data.append(data["vx"])
-                            vy_data.append(data["vy"])
-                            vz_data.append(data["vz"])
+                            t_data.append(t)
 
-                            altitude_data.append(
-                                data["altitude"]
+                            vx_data.append(
+                                dvl["vx"]
                             )
 
-                            x_data.append(data["x"])
-                            y_data.append(data["y"])
+                            vy_data.append(
+                                dvl["vy"]
+                            )
+
+                            vz_data.append(
+                                dvl["vz"]
+                            )
+
+
+                            alt_data.append(
+                                dvl["altitude"]
+                            )
+
+
+                            x_data.append(
+                                dvl["x"]
+                            )
+
+                            y_data.append(
+                                dvl["y"]
+                            )
 
 
 
-                except:
+                except Exception:
+
                     pass
 
 
 
-        except:
+        except socket.timeout:
+
+            continue
+
+
+        except Exception:
 
             break
 
@@ -143,25 +224,120 @@ def dvl_connect():
 
 
 
-def create_plot():
+def display():
+
+    while running:
 
 
-    fig,axs=plt.subplots(
+        os.system("cls")
+
+
+        with lock:
+
+
+            print("==========================")
+            print(" Water Linked DVL A50")
+            print("==========================")
+
+            print(
+                "VX : %.3f m/s"
+                %
+                dvl["vx"]
+            )
+
+            print(
+                "VY : %.3f m/s"
+                %
+                dvl["vy"]
+            )
+
+
+            print(
+                "VZ : %.3f m/s"
+                %
+                dvl["vz"]
+            )
+
+
+            print("--------------------------")
+
+
+            print(
+                "Altitude : %.3f m"
+                %
+                dvl["altitude"]
+            )
+
+
+            print("--------------------------")
+
+
+            print(
+                "X : %.3f"
+                %
+                dvl["x"]
+            )
+
+            print(
+                "Y : %.3f"
+                %
+                dvl["y"]
+            )
+
+            print(
+                "Z : %.3f"
+                %
+                dvl["z"]
+            )
+
+
+            print("==========================")
+
+
+
+        time.sleep(0.2)
+
+
+
+
+
+
+def plot_result():
+
+
+    fig,ax=plt.subplots(
         3,
         1,
-        figsize=(10,8)
+        figsize=(9,8)
     )
 
 
-    ax1,ax2,ax3=axs
+    ax1=ax[0]
+    ax2=ax[1]
+    ax3=ax[2]
 
 
 
-    line_vx,=ax1.plot([],[],label="VX")
-    line_vy,=ax1.plot([],[],label="VY")
-    line_vz,=ax1.plot([],[],label="VZ")
+    l1,=ax1.plot(
+        [],
+        [],
+        label="VX"
+    )
+
+    l2,=ax1.plot(
+        [],
+        [],
+        label="VY"
+    )
+
+    l3,=ax1.plot(
+        [],
+        [],
+        label="VZ"
+    )
 
 
+    ax1.legend()
     ax1.set_title(
         "Velocity"
     )
@@ -170,14 +346,11 @@ def create_plot():
         "m/s"
     )
 
-    ax1.legend()
 
 
-
-    line_alt,=ax2.plot(
+    l4,=ax2.plot(
         [],
-        [],
-        label="Altitude"
+        []
     )
 
 
@@ -189,14 +362,11 @@ def create_plot():
         "m"
     )
 
-    ax2.legend()
 
 
-
-    line_xy,=ax3.plot(
+    l5,=ax3.plot(
         [],
-        [],
-        marker="."
+        []
     )
 
 
@@ -213,52 +383,36 @@ def create_plot():
     )
 
 
-    return fig,(
-        ax1,
-        ax2,
-        ax3,
-        line_vx,
-        line_vy,
-        line_vz,
-        line_alt,
-        line_xy
-    )
+
     def update(frame):
 
-    global running
 
+        l1.set_data(
+            t_data,
+            vx_data
+        )
 
-    with lock:
-
-        t = list(time_data)
-
-        vx = list(vx_data)
-        vy = list(vy_data)
-        vz = list(vz_data)
-
-        alt = list(altitude_data)
-
-        x = list(x_data)
-        y = list(y_data)
-
-
-
-    if len(t) > 0:
-
-        line_vx.set_data(t, vx)
-        line_vy.set_data(t, vy)
-        line_vz.set_data(t, vz)
-
-
-        line_alt.set_data(
-            t,
-            alt
+        l2.set_data(
+            t_data,
+            vy_data
         )
 
 
-        line_xy.set_data(
-            x,
-            y
+        l3.set_data(
+            t_data,
+            vz_data
+        )
+
+
+        l4.set_data(
+            t_data,
+            alt_data
+        )
+
+
+        l5.set_data(
+            x_data,
+            y_data
         )
 
 
@@ -275,121 +429,7 @@ def create_plot():
 
 
 
-    if time.time()-start_time >= COLLECT_TIME:
-
-        running=False
-
-
-
-    return (
-        line_vx,
-        line_vy,
-        line_vz,
-        line_alt,
-        line_xy
-    )
-
-
-
-
-
-def print_status():
-
-    while running:
-
-        with lock:
-
-            print("\033[H\033[J")
-
-            print("==============================")
-            print(" Water Linked DVL A50")
-            print("==============================")
-
-            print(
-                f"VX : {data['vx']:.3f} m/s"
-            )
-
-            print(
-                f"VY : {data['vy']:.3f} m/s"
-            )
-
-            print(
-                f"VZ : {data['vz']:.3f} m/s"
-            )
-
-
-            print("------------------------------")
-
-
-            print(
-                f"Altitude : {data['altitude']:.3f} m"
-            )
-
-
-            print("------------------------------")
-
-
-            print(
-                f"X : {data['x']:.3f} m"
-            )
-
-            print(
-                f"Y : {data['y']:.3f} m"
-            )
-
-            print(
-                f"Z : {data['z']:.3f} m"
-            )
-
-
-            print("------------------------------")
-
-            print(
-                f"Time : {time.time()-start_time:.2f}s"
-            )
-
-            print("==============================")
-
-
-        time.sleep(0.2)
-
-
-
-
-
-
-if __name__=="__main__":
-
-
-    thread_dvl = threading.Thread(
-        target=dvl_connect
-    )
-
-    thread_dvl.start()
-
-
-
-    thread_display = threading.Thread(
-        target=print_status
-    )
-
-    thread_display.start()
-
-
-
-    fig,plot_data=create_plot()
-
-
-    (
-        ax1,
-        ax2,
-        ax3,
-        line_vx,
-        line_vy,
-        line_vz,
-        line_alt,
-        line_xy
-    ) = plot_data
+        return l1,l2,l3,l4,l5
 
 
 
@@ -397,7 +437,7 @@ if __name__=="__main__":
         fig,
         update,
         interval=100,
-        blit=False
+        cache_frame_data=False
     )
 
 
@@ -407,12 +447,35 @@ if __name__=="__main__":
 
 
 
+if __name__=="__main__":
+
+
+    th1=threading.Thread(
+        target=dvl_receive
+    )
+
+    th2=threading.Thread(
+        target=display
+    )
+
+
+    th1.start()
+
+    th2.start()
+
+
+
+    plot_result()
+
+
+
     running=False
 
 
-    thread_dvl.join()
+    th1.join()
 
-    thread_display.join()
+    th2.join()
 
 
-    print("Data collection finished")
+
+    print("Finished")
