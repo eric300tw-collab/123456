@@ -1,0 +1,101 @@
+import socket
+import json
+import os
+
+#============================
+# DVL設定
+#============================
+
+HOST = "192.168.194.95"      # 修改成你的DVL IP
+PORT = 16171                 # Water Linked DVL TCP Port
+
+#============================
+# 建立Socket
+#============================
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.connect((HOST, PORT))
+
+buffer = ""
+
+# 儲存最新資料
+dvl_data = {
+    "vx": 0.0,
+    "vy": 0.0,
+    "vz": 0.0,
+    "altitude": 0.0,
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0,
+    "status": "Waiting..."
+}
+
+
+def print_table():
+
+    # Windows
+    os.system("cls")
+
+    # Linux/Mac 可改成
+    # os.system("clear")
+
+    print("="*45)
+    print("        Water Linked DVL A50")
+    print("="*45)
+
+    print(f"{'VX (m/s)':20}: {dvl_data['vx']:.3f}")
+    print(f"{'VY (m/s)':20}: {dvl_data['vy']:.3f}")
+    print(f"{'VZ (m/s)':20}: {dvl_data['vz']:.3f}")
+
+    print("-"*45)
+
+    print(f"{'Altitude (m)':20}: {dvl_data['altitude']:.3f}")
+
+    print("-"*45)
+
+    print(f"{'X Position (m)':20}: {dvl_data['x']:.3f}")
+    print(f"{'Y Position (m)':20}: {dvl_data['y']:.3f}")
+    print(f"{'Z Position (m)':20}: {dvl_data['z']:.3f}")
+
+    print("-"*45)
+
+    print(f"{'Status':20}: {dvl_data['status']}")
+    print("="*45)
+
+
+while True:
+
+    data = sock.recv(4096).decode()
+
+    buffer += data
+
+    while "\n" in buffer:
+
+        line, buffer = buffer.split("\n",1)
+
+        try:
+
+            packet = json.loads(line)
+
+            if packet.get("type") == "velocity":
+
+                dvl_data["vx"] = packet.get("vx",0)
+                dvl_data["vy"] = packet.get("vy",0)
+                dvl_data["vz"] = packet.get("vz",0)
+
+                dvl_data["altitude"] = packet.get("altitude",0)
+
+                dvl_data["status"] = "Velocity"
+
+            elif packet.get("type") == "position_local":
+
+                dvl_data["x"] = packet.get("x",0)
+                dvl_data["y"] = packet.get("y",0)
+                dvl_data["z"] = packet.get("z",0)
+
+                dvl_data["status"] = "Position"
+
+            print_table()
+
+        except json.JSONDecodeError:
+            pass
