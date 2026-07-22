@@ -1,0 +1,418 @@
+import socket
+import json
+import time
+import threading
+from collections import deque
+
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+
+
+DVL_IP = "192.168.194.95"
+DVL_PORT = 16171
+
+COLLECT_TIME = 5
+
+
+data = {
+    "vx":0,
+    "vy":0,
+    "vz":0,
+    "altitude":0,
+    "x":0,
+    "y":0,
+    "z":0
+}
+
+
+lock = threading.Lock()
+
+running = True
+
+
+time_data = deque(maxlen=200)
+
+vx_data = deque(maxlen=200)
+vy_data = deque(maxlen=200)
+vz_data = deque(maxlen=200)
+
+altitude_data = deque(maxlen=200)
+
+x_data = deque(maxlen=200)
+y_data = deque(maxlen=200)
+
+
+start_time = time.time()
+
+
+
+def dvl_connect():
+
+    global running
+
+    sock = socket.socket(
+        socket.AF_INET,
+        socket.SOCK_STREAM
+    )
+
+    sock.connect(
+        (DVL_IP,DVL_PORT)
+    )
+
+
+    buffer=""
+
+
+    while running:
+
+        try:
+
+            recv_data = sock.recv(4096).decode()
+
+            if not recv_data:
+                continue
+
+
+            buffer += recv_data
+
+
+            while "\n" in buffer:
+
+                line,buffer = buffer.split("\n",1)
+
+                try:
+
+                    packet=json.loads(line)
+
+
+                    with lock:
+
+
+                        if packet.get("type")=="velocity":
+
+                            data["vx"]=packet.get("vx",0)
+                            data["vy"]=packet.get("vy",0)
+                            data["vz"]=packet.get("vz",0)
+
+                            if "altitude" in packet:
+                                data["altitude"]=packet["altitude"]
+
+
+                        elif packet.get("type")=="position_local":
+
+                            data["x"]=packet.get("x",0)
+                            data["y"]=packet.get("y",0)
+                            data["z"]=packet.get("z",0)
+
+
+
+                        t=time.time()-start_time
+
+
+                        if t <= COLLECT_TIME:
+
+                            time_data.append(t)
+
+                            vx_data.append(data["vx"])
+                            vy_data.append(data["vy"])
+                            vz_data.append(data["vz"])
+
+                            altitude_data.append(
+                                data["altitude"]
+                            )
+
+                            x_data.append(data["x"])
+                            y_data.append(data["y"])
+
+
+
+                except:
+                    pass
+
+
+
+        except:
+
+            break
+
+
+
+    sock.close()
+
+
+
+
+
+def create_plot():
+
+
+    fig,axs=plt.subplots(
+        3,
+        1,
+        figsize=(10,8)
+    )
+
+
+    ax1,ax2,ax3=axs
+
+
+
+    line_vx,=ax1.plot([],[],label="VX")
+    line_vy,=ax1.plot([],[],label="VY")
+    line_vz,=ax1.plot([],[],label="VZ")
+
+
+    ax1.set_title(
+        "Velocity"
+    )
+
+    ax1.set_ylabel(
+        "m/s"
+    )
+
+    ax1.legend()
+
+
+
+    line_alt,=ax2.plot(
+        [],
+        [],
+        label="Altitude"
+    )
+
+
+    ax2.set_title(
+        "Altitude"
+    )
+
+    ax2.set_ylabel(
+        "m"
+    )
+
+    ax2.legend()
+
+
+
+    line_xy,=ax3.plot(
+        [],
+        [],
+        marker="."
+    )
+
+
+    ax3.set_title(
+        "XY Trajectory"
+    )
+
+    ax3.set_xlabel(
+        "X(m)"
+    )
+
+    ax3.set_ylabel(
+        "Y(m)"
+    )
+
+
+    return fig,(
+        ax1,
+        ax2,
+        ax3,
+        line_vx,
+        line_vy,
+        line_vz,
+        line_alt,
+        line_xy
+    )
+    def update(frame):
+
+    global running
+
+
+    with lock:
+
+        t = list(time_data)
+
+        vx = list(vx_data)
+        vy = list(vy_data)
+        vz = list(vz_data)
+
+        alt = list(altitude_data)
+
+        x = list(x_data)
+        y = list(y_data)
+
+
+
+    if len(t) > 0:
+
+        line_vx.set_data(t, vx)
+        line_vy.set_data(t, vy)
+        line_vz.set_data(t, vz)
+
+
+        line_alt.set_data(
+            t,
+            alt
+        )
+
+
+        line_xy.set_data(
+            x,
+            y
+        )
+
+
+        ax1.relim()
+        ax1.autoscale_view()
+
+
+        ax2.relim()
+        ax2.autoscale_view()
+
+
+        ax3.relim()
+        ax3.autoscale_view()
+
+
+
+    if time.time()-start_time >= COLLECT_TIME:
+
+        running=False
+
+
+
+    return (
+        line_vx,
+        line_vy,
+        line_vz,
+        line_alt,
+        line_xy
+    )
+
+
+
+
+
+def print_status():
+
+    while running:
+
+        with lock:
+
+            print("\033[H\033[J")
+
+            print("==============================")
+            print(" Water Linked DVL A50")
+            print("==============================")
+
+            print(
+                f"VX : {data['vx']:.3f} m/s"
+            )
+
+            print(
+                f"VY : {data['vy']:.3f} m/s"
+            )
+
+            print(
+                f"VZ : {data['vz']:.3f} m/s"
+            )
+
+
+            print("------------------------------")
+
+
+            print(
+                f"Altitude : {data['altitude']:.3f} m"
+            )
+
+
+            print("------------------------------")
+
+
+            print(
+                f"X : {data['x']:.3f} m"
+            )
+
+            print(
+                f"Y : {data['y']:.3f} m"
+            )
+
+            print(
+                f"Z : {data['z']:.3f} m"
+            )
+
+
+            print("------------------------------")
+
+            print(
+                f"Time : {time.time()-start_time:.2f}s"
+            )
+
+            print("==============================")
+
+
+        time.sleep(0.2)
+
+
+
+
+
+
+if __name__=="__main__":
+
+
+    thread_dvl = threading.Thread(
+        target=dvl_connect
+    )
+
+    thread_dvl.start()
+
+
+
+    thread_display = threading.Thread(
+        target=print_status
+    )
+
+    thread_display.start()
+
+
+
+    fig,plot_data=create_plot()
+
+
+    (
+        ax1,
+        ax2,
+        ax3,
+        line_vx,
+        line_vy,
+        line_vz,
+        line_alt,
+        line_xy
+    ) = plot_data
+
+
+
+    ani=FuncAnimation(
+        fig,
+        update,
+        interval=100,
+        blit=False
+    )
+
+
+    plt.tight_layout()
+
+    plt.show()
+
+
+
+    running=False
+
+
+    thread_dvl.join()
+
+    thread_display.join()
+
+
+    print("Data collection finished")
